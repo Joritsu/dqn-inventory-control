@@ -1,4 +1,6 @@
 streamlit
+gymnasium
+stable-baselines3
 numpy
 pandas
 matplotlib
