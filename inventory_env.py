@@ -78,7 +78,7 @@ class InventoryEnv(gym.Env):
         self.inventory -= sold
 
         revenue = sold * self.sale_price
-        ordering_cost = order_quantity * self.order_cost
+        ordering_cost = self.order_cost if order_quantity > 0 else 0.0
         holding_cost = self.inventory * self.holding_cost
         shortage_cost = unmet_demand * self.shortage_cost
         reward = revenue - ordering_cost - holding_cost - shortage_cost
