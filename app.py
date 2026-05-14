@@ -7,7 +7,10 @@ from config import (
     DEMAND_SPIKE_CHANCE,
     DEMAND_SPIKE_MULTIPLIER,
     DEMAND_HISTORY_WINDOW,
+    DEMAND_SEASONAL_AMPLITUDE,
+    DEMAND_SEASONAL_PERIOD,
     DEMAND_STD,
+    DEMAND_TREND_STRENGTH,
     EPISODE_LENGTH,
     HOLDING_COST,
     INITIAL_INVENTORY,
@@ -22,8 +25,8 @@ from config import (
 from inventory_env import InventoryEnv
 
 
-MODEL_PATH = "models/dqn_inventory"
-BASE_STOCK_TARGET = 30
+MODEL_PATH = "models/dqn_inventory_trend"
+BASE_STOCK_TARGET = 110
 
 
 @st.cache_resource
@@ -39,7 +42,7 @@ def run_policy(policy_name, env_config, model=None, policy=None, seed=123):
 
     for _ in range(env.episode_length):
         if policy is not None:
-            action = policy(observation)
+            action = policy(observation, env)
         elif model is None:
             action = env.action_space.sample()
         else:
@@ -55,6 +58,7 @@ def run_policy(policy_name, env_config, model=None, policy=None, seed=123):
                 "arriving_order": info["arriving_order"],
                 "pending_orders": info["pending_orders_total"],
                 "demand": info["demand"],
+                "expected_demand": info["expected_demand"],
                 "demand_spike": info["demand_spike"],
                 "sold": info["sold"],
                 "unmet_demand": info["unmet_demand"],
@@ -67,14 +71,18 @@ def run_policy(policy_name, env_config, model=None, policy=None, seed=123):
 
     st.subheader(policy_name)
     st.metric("Total reward", f"{total_reward:.2f}")
-    st.line_chart(rows, x="step", y=["inventory", "demand", "order", "pending_orders"])
+    st.line_chart(
+        rows,
+        x="step",
+        y=["inventory", "demand", "expected_demand", "order", "pending_orders"],
+    )
     st.dataframe(rows, width="stretch")
 
 
 def base_stock_policy(target_inventory, max_order):
-    def policy(observation):
-        current_inventory = int(observation[0])
-        pending_orders = int(observation[4])
+    def policy(observation, env):
+        current_inventory = int(round(observation[0] * env.max_inventory))
+        pending_orders = int(round(observation[4] * env._pending_order_scale()))
         inventory_position = current_inventory + pending_orders
         return max(0, min(max_order, target_inventory - inventory_position))
 
@@ -122,6 +130,27 @@ demand_spike_multiplier = st.sidebar.slider(
     float(DEMAND_SPIKE_MULTIPLIER),
     0.1,
 )
+demand_trend_strength = st.sidebar.slider(
+    "Demand trend strength",
+    -0.8,
+    1.5,
+    float(DEMAND_TREND_STRENGTH),
+    0.05,
+)
+demand_seasonal_amplitude = st.sidebar.slider(
+    "Seasonal amplitude",
+    0.0,
+    0.8,
+    float(DEMAND_SEASONAL_AMPLITUDE),
+    0.05,
+)
+demand_seasonal_period = st.sidebar.slider(
+    "Seasonal period",
+    5,
+    100,
+    DEMAND_SEASONAL_PERIOD,
+    1,
+)
 
 st.sidebar.header("Costs")
 
@@ -144,11 +173,13 @@ shortage_cost = st.sidebar.number_input(
     value=float(SHORTAGE_COST),
     step=0.5,
 )
+
+base_stock_limit = max_inventory + max_order * max(1, lead_time)
 base_stock_target = st.sidebar.slider(
     "Base-stock target",
     0,
-    max_inventory,
-    min(BASE_STOCK_TARGET, max_inventory),
+    base_stock_limit,
+    min(BASE_STOCK_TARGET, base_stock_limit),
     1,
 )
 
@@ -161,6 +192,9 @@ env_config = {
     "demand_history_window": demand_history_window,
     "mean_demand": mean_demand,
     "demand_std": demand_std,
+    "demand_trend_strength": demand_trend_strength,
+    "demand_seasonal_amplitude": demand_seasonal_amplitude,
+    "demand_seasonal_period": demand_seasonal_period,
     "demand_spike_chance": demand_spike_chance,
     "demand_spike_multiplier": demand_spike_multiplier,
     "sale_price": sale_price,
@@ -182,6 +216,9 @@ st.write(f"Delivery lead time: **{lead_time}**")
 st.write(f"Demand history window: **{demand_history_window}**")
 st.write(f"Mean demand: **{mean_demand}**")
 st.write(f"Demand standard deviation: **{demand_std}**")
+st.write(f"Demand trend strength: **{demand_trend_strength:.2f}**")
+st.write(f"Seasonal amplitude: **{demand_seasonal_amplitude:.2f}**")
+st.write(f"Seasonal period: **{demand_seasonal_period}**")
 st.write(f"Demand spike chance: **{demand_spike_chance:.0%}**")
 st.write(f"Demand spike multiplier: **{demand_spike_multiplier}x**")
 

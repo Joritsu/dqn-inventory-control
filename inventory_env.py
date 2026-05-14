@@ -6,7 +6,10 @@ from config import (
     DEMAND_SPIKE_CHANCE,
     DEMAND_SPIKE_MULTIPLIER,
     DEMAND_HISTORY_WINDOW,
+    DEMAND_SEASONAL_AMPLITUDE,
+    DEMAND_SEASONAL_PERIOD,
     DEMAND_STD,
+    DEMAND_TREND_STRENGTH,
     EPISODE_LENGTH,
     HOLDING_COST,
     INITIAL_INVENTORY,
@@ -33,6 +36,9 @@ class InventoryEnv(gym.Env):
         demand_history_window=DEMAND_HISTORY_WINDOW,
         mean_demand=MEAN_DEMAND,
         demand_std=DEMAND_STD,
+        demand_trend_strength=DEMAND_TREND_STRENGTH,
+        demand_seasonal_amplitude=DEMAND_SEASONAL_AMPLITUDE,
+        demand_seasonal_period=DEMAND_SEASONAL_PERIOD,
         demand_spike_chance=DEMAND_SPIKE_CHANCE,
         demand_spike_multiplier=DEMAND_SPIKE_MULTIPLIER,
         sale_price=SALE_PRICE,
@@ -50,6 +56,9 @@ class InventoryEnv(gym.Env):
         self.demand_history_window = max(1, int(demand_history_window))
         self.mean_demand = mean_demand
         self.demand_std = demand_std
+        self.demand_trend_strength = demand_trend_strength
+        self.demand_seasonal_amplitude = demand_seasonal_amplitude
+        self.demand_seasonal_period = max(1, int(demand_seasonal_period))
         self.demand_spike_chance = demand_spike_chance
         self.demand_spike_multiplier = demand_spike_multiplier
         self.sale_price = sale_price
@@ -58,19 +67,9 @@ class InventoryEnv(gym.Env):
         self.shortage_cost = shortage_cost
 
         self.action_space = spaces.Discrete(self.max_order + 1)
-        max_observed_demand = np.finfo(np.float32).max
         self.observation_space = spaces.Box(
-            low=np.array([0, 0, 0, 0, 0], dtype=np.float32),
-            high=np.array(
-                [
-                    self.max_inventory,
-                    self.episode_length,
-                    max_observed_demand,
-                    max_observed_demand,
-                    self.max_order * max(1, self.lead_time),
-                ],
-                dtype=np.float32,
-            ),
+            low=np.zeros(5, dtype=np.float32),
+            high=np.ones(5, dtype=np.float32),
             dtype=np.float32,
         )
 
@@ -119,6 +118,7 @@ class InventoryEnv(gym.Env):
         info.update(
             {
                 "demand": demand,
+                "expected_demand": self._expected_demand(),
                 "demand_spike": demand_spike,
                 "sold": sold,
                 "unmet_demand": unmet_demand,
@@ -142,13 +142,20 @@ class InventoryEnv(gym.Env):
         )
 
     def _sample_demand(self):
-        demand = self.np_random.normal(self.mean_demand, self.demand_std)
+        demand = self.np_random.normal(self._expected_demand(), self.demand_std)
         demand_spike = self.np_random.random() < self.demand_spike_chance
 
         if demand_spike:
             demand *= self.demand_spike_multiplier
 
         return max(0, int(round(demand))), bool(demand_spike)
+
+    def _expected_demand(self):
+        progress = self.current_step / max(1, self.episode_length - 1)
+        trend_multiplier = max(0.0, 1.0 + self.demand_trend_strength * progress)
+        seasonal_phase = 2 * np.pi * self.current_step / self.demand_seasonal_period
+        seasonal_multiplier = 1.0 + self.demand_seasonal_amplitude * np.sin(seasonal_phase)
+        return max(0.0, self.mean_demand * trend_multiplier * seasonal_multiplier)
 
     def _receive_arriving_order(self):
         if self.lead_time == 0:
@@ -175,14 +182,29 @@ class InventoryEnv(gym.Env):
     def _pending_orders_total(self):
         return int(sum(self.pending_orders))
 
+    def _demand_scale(self):
+        trend_floor = min(1.0, 1.0 + self.demand_trend_strength)
+        trend_ceiling = max(1.0, 1.0 + self.demand_trend_strength)
+        max_trend_multiplier = max(abs(trend_floor), abs(trend_ceiling))
+        max_seasonal_multiplier = 1.0 + abs(self.demand_seasonal_amplitude)
+        expected_peak_demand = self.mean_demand * max_trend_multiplier * max_seasonal_multiplier
+        expected_spike_demand = (expected_peak_demand + 3 * self.demand_std) * self.demand_spike_multiplier
+        return max(1.0, self.max_inventory, self.max_order, expected_spike_demand)
+
+    def _pending_order_scale(self):
+        return max(1.0, self.max_order * max(1, self.lead_time))
+
+    def _normalize(self, value, scale):
+        return float(np.clip(value / scale, 0.0, 1.0))
+
     def _get_observation(self):
         return np.array(
             [
-                self.inventory,
-                self.current_step,
-                self._last_demand(),
-                self._average_recent_demand(),
-                self._pending_orders_total(),
+                self._normalize(self.inventory, self.max_inventory),
+                self._normalize(self.current_step, self.episode_length),
+                self._normalize(self._last_demand(), self._demand_scale()),
+                self._normalize(self._average_recent_demand(), self._demand_scale()),
+                self._normalize(self._pending_orders_total(), self._pending_order_scale()),
             ],
             dtype=np.float32,
         )
@@ -193,6 +215,7 @@ class InventoryEnv(gym.Env):
             "step": self.current_step,
             "last_demand": self._last_demand(),
             "average_recent_demand": self._average_recent_demand(),
+            "expected_demand": self._expected_demand(),
             "pending_orders": list(self.pending_orders),
             "pending_orders_total": self._pending_orders_total(),
         }
