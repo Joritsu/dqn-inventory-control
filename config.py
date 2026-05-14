@@ -1,5 +1,5 @@
 APP_TITLE = "Adaptive Inventory Management System"
-APP_DESCRIPTION = "Something something."
+APP_DESCRIPTION = ""
 
 EPISODE_LENGTH = 100
 MAX_INVENTORY = 100

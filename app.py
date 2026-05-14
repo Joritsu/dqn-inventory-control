@@ -204,28 +204,28 @@ env_config = {
 }
 
 st.title(APP_TITLE)
-st.write(APP_DESCRIPTION)
+if APP_DESCRIPTION:
+    st.write(APP_DESCRIPTION)
 
-st.subheader("Scenario configuration")
+with st.expander("Scenario configuration"):
+    st.write(f"Episode length: **{episode_length}**")
+    st.write(f"Maximum inventory: **{max_inventory}**")
+    st.write(f"Initial inventory: **{initial_inventory}**")
+    st.write(f"Maximum order: **{max_order}**")
+    st.write(f"Delivery lead time: **{lead_time}**")
+    st.write(f"Demand history window: **{demand_history_window}**")
+    st.write(f"Mean demand: **{mean_demand}**")
+    st.write(f"Demand standard deviation: **{demand_std}**")
+    st.write(f"Demand trend strength: **{demand_trend_strength:.2f}**")
+    st.write(f"Seasonal amplitude: **{demand_seasonal_amplitude:.2f}**")
+    st.write(f"Seasonal period: **{demand_seasonal_period}**")
+    st.write(f"Demand spike chance: **{demand_spike_chance:.0%}**")
+    st.write(f"Demand spike multiplier: **{demand_spike_multiplier}x**")
 
-st.write(f"Episode length: **{episode_length}**")
-st.write(f"Maximum inventory: **{max_inventory}**")
-st.write(f"Initial inventory: **{initial_inventory}**")
-st.write(f"Maximum order: **{max_order}**")
-st.write(f"Delivery lead time: **{lead_time}**")
-st.write(f"Demand history window: **{demand_history_window}**")
-st.write(f"Mean demand: **{mean_demand}**")
-st.write(f"Demand standard deviation: **{demand_std}**")
-st.write(f"Demand trend strength: **{demand_trend_strength:.2f}**")
-st.write(f"Seasonal amplitude: **{demand_seasonal_amplitude:.2f}**")
-st.write(f"Seasonal period: **{demand_seasonal_period}**")
-st.write(f"Demand spike chance: **{demand_spike_chance:.0%}**")
-st.write(f"Demand spike multiplier: **{demand_spike_multiplier}x**")
-
-st.write(f"Sale price: **{sale_price}**")
-st.write(f"Fixed order cost: **{order_cost}**")
-st.write(f"Holding cost: **{holding_cost}**")
-st.write(f"Shortage cost: **{shortage_cost}**")
+    st.write(f"Sale price: **{sale_price}**")
+    st.write(f"Fixed order cost: **{order_cost}**")
+    st.write(f"Holding cost: **{holding_cost}**")
+    st.write(f"Shortage cost: **{shortage_cost}**")
 
 st.subheader("Policy simulation")
 
