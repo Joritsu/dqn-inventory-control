@@ -6,10 +6,12 @@ from config import (
     APP_DESCRIPTION,
     DEMAND_SPIKE_CHANCE,
     DEMAND_SPIKE_MULTIPLIER,
+    DEMAND_HISTORY_WINDOW,
     DEMAND_STD,
     EPISODE_LENGTH,
     HOLDING_COST,
     INITIAL_INVENTORY,
+    LEAD_TIME,
     MAX_INVENTORY,
     MAX_ORDER,
     MEAN_DEMAND,
@@ -35,7 +37,7 @@ def run_policy(policy_name, env_config, model=None, policy=None, seed=123):
     total_reward = 0.0
     rows = []
 
-    for _ in range(EPISODE_LENGTH):
+    for _ in range(env.episode_length):
         if policy is not None:
             action = policy(observation)
         elif model is None:
@@ -50,6 +52,8 @@ def run_policy(policy_name, env_config, model=None, policy=None, seed=123):
                 "step": info["step"],
                 "inventory": info["inventory"],
                 "order": info["order_quantity"],
+                "arriving_order": info["arriving_order"],
+                "pending_orders": info["pending_orders_total"],
                 "demand": info["demand"],
                 "demand_spike": info["demand_spike"],
                 "sold": info["sold"],
@@ -63,14 +67,16 @@ def run_policy(policy_name, env_config, model=None, policy=None, seed=123):
 
     st.subheader(policy_name)
     st.metric("Total reward", f"{total_reward:.2f}")
-    st.line_chart(rows, x="step", y=["inventory", "demand", "order"])
+    st.line_chart(rows, x="step", y=["inventory", "demand", "order", "pending_orders"])
     st.dataframe(rows, width="stretch")
 
 
 def base_stock_policy(target_inventory, max_order):
     def policy(observation):
         current_inventory = int(observation[0])
-        return max(0, min(max_order, target_inventory - current_inventory))
+        pending_orders = int(observation[4])
+        inventory_position = current_inventory + pending_orders
+        return max(0, min(max_order, target_inventory - inventory_position))
 
     return policy
 
@@ -89,6 +95,14 @@ initial_inventory = st.sidebar.slider(
     5,
 )
 max_order = st.sidebar.slider("Maximum order", 1, 150, MAX_ORDER, 1)
+lead_time = st.sidebar.slider("Delivery lead time", 0, 10, LEAD_TIME, 1)
+demand_history_window = st.sidebar.slider(
+    "Demand history window",
+    1,
+    20,
+    DEMAND_HISTORY_WINDOW,
+    1,
+)
 
 st.sidebar.header("Demand")
 
@@ -143,6 +157,8 @@ env_config = {
     "max_inventory": max_inventory,
     "initial_inventory": initial_inventory,
     "max_order": max_order,
+    "lead_time": lead_time,
+    "demand_history_window": demand_history_window,
     "mean_demand": mean_demand,
     "demand_std": demand_std,
     "demand_spike_chance": demand_spike_chance,
@@ -162,6 +178,8 @@ st.write(f"Episode length: **{episode_length}**")
 st.write(f"Maximum inventory: **{max_inventory}**")
 st.write(f"Initial inventory: **{initial_inventory}**")
 st.write(f"Maximum order: **{max_order}**")
+st.write(f"Delivery lead time: **{lead_time}**")
+st.write(f"Demand history window: **{demand_history_window}**")
 st.write(f"Mean demand: **{mean_demand}**")
 st.write(f"Demand standard deviation: **{demand_std}**")
 st.write(f"Demand spike chance: **{demand_spike_chance:.0%}**")
@@ -193,6 +211,8 @@ if run_dqn:
         run_policy("Trained DQN policy", env_config, load_model(), seed=None)
     except FileNotFoundError:
         st.error("No trained model found. Run `python train_dqn.py` first.")
+    except ValueError:
+        st.error("The trained model uses the old observation shape. Run `python train_dqn.py` again.")
 
 if run_base_stock:
     run_policy(

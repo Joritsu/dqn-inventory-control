@@ -1,6 +1,5 @@
 from stable_baselines3 import DQN
 
-from config import MAX_ORDER
 from inventory_env import InventoryEnv
 
 
@@ -51,7 +50,9 @@ def summarize_policy(name, policy):
 def base_stock_policy(target_inventory):
     def policy(observation, env):
         current_inventory = int(observation[0])
-        return max(0, min(MAX_ORDER, target_inventory - current_inventory))
+        pending_orders = int(observation[4])
+        inventory_position = current_inventory + pending_orders
+        return max(0, min(env.max_order, target_inventory - inventory_position))
 
     return policy
 
@@ -63,10 +64,16 @@ def random_policy(observation, env):
 def main():
     model = DQN.load(MODEL_PATH)
 
-    summarize_policy(
-        "Trained DQN",
-        lambda observation, env: model.predict(observation, deterministic=True)[0],
-    )
+    try:
+        summarize_policy(
+            "Trained DQN",
+            lambda observation, env: model.predict(observation, deterministic=True)[0],
+        )
+    except ValueError:
+        print("Trained DQN model is incompatible with the current observation shape.")
+        print("Run `python train_dqn.py` to train a new model with supply-chain state inputs.")
+        print()
+
     summarize_policy("Random policy", random_policy)
     summarize_policy("Base-stock S=25", base_stock_policy(25))
     summarize_policy("Base-stock S=30", base_stock_policy(30))
