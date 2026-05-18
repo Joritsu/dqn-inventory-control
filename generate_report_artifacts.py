@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from stable_baselines3 import DQN
 
+from config import ENVIRONMENT_CONFIGS
 from inventory_env import InventoryEnv
 
 
@@ -16,8 +17,14 @@ REPORT_CONFIG_NAME = "baseline"
 TRAINING_RUN_DIR = Path("models/training_runs") / REPORT_CONFIG_NAME
 TRAINING_METRICS_PATH = TRAINING_RUN_DIR / "training_metrics.csv"
 INITIAL_MODEL_PATH = str(TRAINING_RUN_DIR / "initial_dqn_inventory")
+BEST_MODEL_PATH = str(TRAINING_RUN_DIR / "best_model" / "best_model")
 FINAL_MODEL_PATH = str(TRAINING_RUN_DIR / "dqn_inventory")
-ORDER_COMPARISON_PATH = ARTIFACT_DIR / "initial_vs_final_orders.csv"
+ORDER_COMPARISON_PATH = ARTIFACT_DIR / "initial_vs_best_orders.csv"
+ORDER_COMPARISON_PLOT_PATH = ARTIFACT_DIR / "initial_vs_best_orders.png"
+
+
+def report_env_config():
+    return ENVIRONMENT_CONFIGS[REPORT_CONFIG_NAME]["env_config"]
 
 
 def plot_training_metrics():
@@ -44,8 +51,28 @@ def plot_training_metrics():
         plt.close()
 
 
+def model_file_exists(model_path):
+    path = Path(model_path)
+    model_file = path if path.suffix == ".zip" else Path(f"{model_path}.zip")
+    return model_file.exists()
+
+
+def load_compatible_model(model_paths):
+    expected_shape = InventoryEnv(**report_env_config()).observation_space.shape
+
+    for model_path in model_paths:
+        if not model_file_exists(model_path):
+            continue
+
+        model = DQN.load(str(model_path))
+        if model.observation_space.shape == expected_shape:
+            return model, str(model_path)
+
+    return None, None
+
+
 def run_model_episode(model, seed):
-    env = InventoryEnv()
+    env = InventoryEnv(**report_env_config())
     observation, info = env.reset(seed=seed)
     rows = []
     done = False
@@ -71,24 +98,17 @@ def run_model_episode(model, seed):
 
 
 def write_order_comparison(seed=123):
-    initial_path = Path(f"{INITIAL_MODEL_PATH}.zip")
-    final_path = Path(f"{FINAL_MODEL_PATH}.zip")
+    initial_model, initial_model_path = load_compatible_model([INITIAL_MODEL_PATH])
+    trained_model, trained_model_path = load_compatible_model([BEST_MODEL_PATH, FINAL_MODEL_PATH])
 
-    if not initial_path.exists() or not final_path.exists():
-        print("Initial or final DQN model is missing. Run `python train_dqn.py` first.")
+    if initial_model is None or trained_model is None:
+        print("Initial or trained DQN model is missing or incompatible. Run `python train_dqn.py` first.")
         return
 
-    initial_model = DQN.load(INITIAL_MODEL_PATH)
-    final_model = DQN.load(FINAL_MODEL_PATH)
-    expected_shape = InventoryEnv().observation_space.shape
-
-    if initial_model.observation_space.shape != expected_shape or final_model.observation_space.shape != expected_shape:
-        print("Initial or final DQN model is incompatible with the current environment.")
-        print("Run `python train_dqn.py` before regenerating the order-comparison artifacts.")
-        return
+    print(f"Comparing {initial_model_path} against {trained_model_path}.")
 
     initial_rows = run_model_episode(initial_model, seed)
-    final_rows = run_model_episode(final_model, seed)
+    trained_rows = run_model_episode(trained_model, seed)
 
     with open(ORDER_COMPARISON_PATH, "w", newline="") as file:
         writer = csv.DictWriter(
@@ -98,31 +118,31 @@ def write_order_comparison(seed=123):
                 "demand",
                 "expected_demand",
                 "initial_order",
-                "final_order",
+                "best_order",
                 "initial_inventory",
-                "final_inventory",
+                "best_inventory",
                 "initial_pending_orders",
-                "final_pending_orders",
+                "best_pending_orders",
                 "initial_unmet_demand",
-                "final_unmet_demand",
+                "best_unmet_demand",
             ],
         )
         writer.writeheader()
 
-        for initial, final in zip(initial_rows, final_rows):
+        for initial, trained in zip(initial_rows, trained_rows):
             writer.writerow(
                 {
                     "step": initial["step"],
                     "demand": initial["demand"],
                     "expected_demand": initial["expected_demand"],
                     "initial_order": initial["order"],
-                    "final_order": final["order"],
+                    "best_order": trained["order"],
                     "initial_inventory": initial["inventory"],
-                    "final_inventory": final["inventory"],
+                    "best_inventory": trained["inventory"],
                     "initial_pending_orders": initial["pending_orders"],
-                    "final_pending_orders": final["pending_orders"],
+                    "best_pending_orders": trained["pending_orders"],
                     "initial_unmet_demand": initial["unmet_demand"],
-                    "final_unmet_demand": final["unmet_demand"],
+                    "best_unmet_demand": trained["unmet_demand"],
                 }
             )
 
@@ -130,14 +150,14 @@ def write_order_comparison(seed=123):
     plt.figure(figsize=(9, 5))
     plt.plot(comparison["step"], comparison["demand"], label="Demand", linewidth=2)
     plt.plot(comparison["step"], comparison["initial_order"], label="Initial policy order", alpha=0.8)
-    plt.plot(comparison["step"], comparison["final_order"], label="Final policy order", alpha=0.8)
+    plt.plot(comparison["step"], comparison["best_order"], label="Best policy order", alpha=0.8)
     plt.title("Order policy before and after training")
     plt.xlabel("Episode step")
     plt.ylabel("Units")
     plt.grid(True, alpha=0.3)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(ARTIFACT_DIR / "initial_vs_final_orders.png", dpi=160)
+    plt.savefig(ORDER_COMPARISON_PLOT_PATH, dpi=160)
     plt.close()
 
 

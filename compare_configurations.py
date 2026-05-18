@@ -65,8 +65,8 @@ def load_compatible_dqn(config_name, env_config):
         reverse=True,
     )
     candidate_paths = [
-        run_dir / "dqn_inventory",
         run_dir / "best_model" / "best_model",
+        run_dir / "dqn_inventory",
     ] + checkpoint_paths
     expected_shape = InventoryEnv(**env_config).observation_space.shape
 
@@ -152,7 +152,7 @@ def load_policies(config_name, env_config):
     if model is None:
         print(f"No compatible DQN model found for {config_name}. The experiment will use only baseline policies.")
     else:
-        policies.insert(0, (f"DQN trained on {config_name}", dqn_policy(model)))
+        policies.insert(0, (f"Best DQN trained on {config_name}", dqn_policy(model)))
 
     return policies
 
