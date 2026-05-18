@@ -1,4 +1,5 @@
 streamlit
+altair
 gymnasium
 stable-baselines3
 numpy

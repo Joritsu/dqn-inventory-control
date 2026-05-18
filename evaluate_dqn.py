@@ -1,15 +1,62 @@
+from pathlib import Path
+
 from stable_baselines3 import DQN
 
+from config import ENVIRONMENT_CONFIGS
 from inventory_env import InventoryEnv
 
 
-MODEL_PATH = "models/dqn_inventory_trend"
+EVALUATION_CONFIG_NAME = "baseline"
+TRAINING_RUNS_DIR = Path("models/training_runs")
 EVALUATION_EPISODES = 100
 BASE_STOCK_TARGETS = [60, 70, 80, 90, 100, 110, 120, 130]
 
 
+def checkpoint_timesteps(checkpoint_path):
+    name_parts = checkpoint_path.stem.split("_")
+
+    if len(name_parts) < 2 or name_parts[-1] != "steps":
+        return -1
+
+    try:
+        return int(name_parts[-2])
+    except ValueError:
+        return -1
+
+
+def evaluation_env_config():
+    return ENVIRONMENT_CONFIGS[EVALUATION_CONFIG_NAME]["env_config"]
+
+
+def load_compatible_dqn():
+    run_dir = TRAINING_RUNS_DIR / EVALUATION_CONFIG_NAME
+    checkpoint_dir = run_dir / "checkpoints"
+    checkpoint_paths = sorted(
+        checkpoint_dir.glob("dqn_inventory_*_steps.zip"),
+        key=checkpoint_timesteps,
+        reverse=True,
+    )
+    candidate_paths = [
+        run_dir / "dqn_inventory",
+        run_dir / "best_model" / "best_model",
+    ] + checkpoint_paths
+    expected_shape = InventoryEnv(**evaluation_env_config()).observation_space.shape
+
+    for model_path in candidate_paths:
+        path = Path(model_path)
+        model_file = path if path.suffix == ".zip" else Path(f"{model_path}.zip")
+        if not model_file.exists():
+            continue
+
+        model = DQN.load(str(model_path))
+        if model.observation_space.shape == expected_shape:
+            return model, str(model_path)
+
+    return None, None
+
+
 def run_episode(policy, seed):
-    env = InventoryEnv()
+    env = InventoryEnv(**evaluation_env_config())
     env.action_space.seed(seed)
     observation, info = env.reset(seed=seed)
     total_reward = 0.0
@@ -69,7 +116,7 @@ def summarize_policy(name, policy):
 def base_stock_policy(target_inventory):
     def policy(observation, env):
         current_inventory = int(round(observation[0] * env.max_inventory))
-        pending_orders = int(round(observation[4] * env._pending_order_scale()))
+        pending_orders = env._pending_orders_total()
         inventory_position = current_inventory + pending_orders
         return max(0, min(env.max_order, target_inventory - inventory_position))
 
@@ -81,19 +128,16 @@ def random_policy(observation, env):
 
 
 def main():
-    try:
-        model = DQN.load(MODEL_PATH)
+    model, model_path = load_compatible_dqn()
+
+    if model is not None:
         summarize_policy(
-            "Trained DQN",
+            f"Trained DQN ({model_path})",
             lambda observation, env: model.predict(observation, deterministic=True)[0],
         )
-    except FileNotFoundError:
-        print("No trend-trained DQN model found.")
-        print("Run `python train_dqn.py` to train one before comparing the trained policy.")
-        print()
-    except ValueError:
-        print("Trained DQN model is incompatible with the current observation shape.")
-        print("Run `python train_dqn.py` to train a new model with supply-chain state inputs.")
+    else:
+        print("No compatible DQN model found.")
+        print(f"Run `python train_dqn.py` to train one for `{EVALUATION_CONFIG_NAME}`.")
         print()
 
     summarize_policy("Random policy", random_policy)

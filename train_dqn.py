@@ -1,28 +1,54 @@
+import argparse
 import csv
 from pathlib import Path
 
 from stable_baselines3 import DQN
-from stable_baselines3.common.callbacks import BaseCallback, CallbackList, EvalCallback, StopTrainingOnNoModelImprovement
+from stable_baselines3.common.callbacks import (
+    BaseCallback,
+    CallbackList,
+    CheckpointCallback,
+    EvalCallback,
+    StopTrainingOnNoModelImprovement,
+)
 from stable_baselines3.common.env_checker import check_env
 
+from config import ENVIRONMENT_CONFIGS, TRAINING_CONFIG_NAMES
 from inventory_env import InventoryEnv
 
 
-MODEL_PATH = "models/dqn_inventory_trend"
-INITIAL_MODEL_PATH = "models/initial_dqn_inventory_trend"
-BEST_MODEL_DIR = "models/best_dqn_inventory_trend"
-TRAINING_METRICS_PATH = "models/training_metrics.csv"
+TRAINING_RUNS_DIR = Path("models/training_runs")
+MODEL_NAME = "dqn_inventory"
+INITIAL_MODEL_NAME = "initial_dqn_inventory"
+BEST_MODEL_DIR_NAME = "best_model"
+CHECKPOINT_DIR_NAME = "checkpoints"
+TRAINING_METRICS_NAME = "training_metrics.csv"
 TOTAL_TIMESTEPS = 1_000_000
 EVAL_FREQ = 10_000
 EVAL_EPISODES = 10
 PATIENCE_EVALUATIONS = 15
 
 
-def evaluate_policy_metrics(model, n_eval_episodes=EVAL_EPISODES):
+def run_dir(config_name):
+    return TRAINING_RUNS_DIR / config_name
+
+
+def run_paths(config_name):
+    directory = run_dir(config_name)
+    return {
+        "model": directory / MODEL_NAME,
+        "initial_model": directory / INITIAL_MODEL_NAME,
+        "best_model_dir": directory / BEST_MODEL_DIR_NAME,
+        "checkpoints": directory / CHECKPOINT_DIR_NAME,
+        "evaluations": directory / "evaluations",
+        "metrics": directory / TRAINING_METRICS_NAME,
+    }
+
+
+def evaluate_policy_metrics(model, env_config, n_eval_episodes=EVAL_EPISODES):
     results = []
 
     for seed in range(n_eval_episodes):
-        env = InventoryEnv()
+        env = InventoryEnv(**env_config)
         observation, info = env.reset(seed=seed)
         total_reward = 0.0
         total_cost = 0.0
@@ -76,9 +102,10 @@ def append_training_metrics(path, timesteps, metrics):
 
 
 class TrainingMetricsCallback(BaseCallback):
-    def __init__(self, metrics_path, eval_freq, n_eval_episodes, verbose=0):
+    def __init__(self, metrics_path, env_config, eval_freq, n_eval_episodes, verbose=0):
         super().__init__(verbose)
         self.metrics_path = metrics_path
+        self.env_config = env_config
         self.eval_freq = eval_freq
         self.n_eval_episodes = n_eval_episodes
 
@@ -86,14 +113,23 @@ class TrainingMetricsCallback(BaseCallback):
         if self.num_timesteps % self.eval_freq != 0:
             return True
 
-        metrics = evaluate_policy_metrics(self.model, self.n_eval_episodes)
+        metrics = evaluate_policy_metrics(self.model, self.env_config, self.n_eval_episodes)
         append_training_metrics(self.metrics_path, self.num_timesteps, metrics)
         return True
 
 
-def main():
-    env = InventoryEnv()
-    eval_env = InventoryEnv()
+def train_config(config_name, config):
+    env_config = config["env_config"]
+    paths = run_paths(config_name)
+
+    print(f"Training DQN for configuration: {config_name}")
+    print(config["description"])
+
+    paths["checkpoints"].mkdir(parents=True, exist_ok=True)
+    paths["best_model_dir"].mkdir(parents=True, exist_ok=True)
+
+    env = InventoryEnv(**env_config)
+    eval_env = InventoryEnv(**env_config)
     check_env(env, warn=True)
 
     early_stop_callback = StopTrainingOnNoModelImprovement(
@@ -104,8 +140,8 @@ def main():
 
     eval_callback = EvalCallback(
         eval_env,
-        best_model_save_path=BEST_MODEL_DIR,
-        log_path="models/evaluations",
+        best_model_save_path=str(paths["best_model_dir"]),
+        log_path=str(paths["evaluations"]),
         eval_freq=EVAL_FREQ,
         n_eval_episodes=EVAL_EPISODES,
         deterministic=True,
@@ -113,9 +149,15 @@ def main():
         verbose=1,
     )
     metrics_callback = TrainingMetricsCallback(
-        TRAINING_METRICS_PATH,
+        paths["metrics"],
+        env_config,
         eval_freq=EVAL_FREQ,
         n_eval_episodes=EVAL_EPISODES,
+    )
+    checkpoint_callback = CheckpointCallback(
+        save_freq=EVAL_FREQ,
+        save_path=str(paths["checkpoints"]),
+        name_prefix="dqn_inventory",
     )
 
     model = DQN(
@@ -133,21 +175,41 @@ def main():
         seed=123,
     )
 
-    model.save(INITIAL_MODEL_PATH)
-    write_training_metrics_header(TRAINING_METRICS_PATH)
-    append_training_metrics(TRAINING_METRICS_PATH, 0, evaluate_policy_metrics(model))
+    model.save(str(paths["initial_model"]))
+    write_training_metrics_header(paths["metrics"])
+    append_training_metrics(paths["metrics"], 0, evaluate_policy_metrics(model, env_config))
 
     model.learn(
         total_timesteps=TOTAL_TIMESTEPS,
-        callback=CallbackList([eval_callback, metrics_callback]),
+        callback=CallbackList([eval_callback, metrics_callback, checkpoint_callback]),
     )
-    model.save(MODEL_PATH)
-    append_training_metrics(TRAINING_METRICS_PATH, model.num_timesteps, evaluate_policy_metrics(model))
+    model.save(str(paths["model"]))
+    append_training_metrics(paths["metrics"], model.num_timesteps, evaluate_policy_metrics(model, env_config))
 
-    print(f"Saved initial model to {INITIAL_MODEL_PATH}.zip")
-    print(f"Saved model to {MODEL_PATH}.zip")
-    print(f"Best evaluation model saved in {BEST_MODEL_DIR}.")
-    print(f"Training metrics saved to {TRAINING_METRICS_PATH}.")
+    print(f"Saved initial model to {paths['initial_model']}.zip")
+    print(f"Saved model to {paths['model']}.zip")
+    print(f"Best evaluation model saved in {paths['best_model_dir']}.")
+    print(f"Training checkpoints saved in {paths['checkpoints']}.")
+    print(f"Training metrics saved to {paths['metrics']}.")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train DQN inventory policies for named environment configs.")
+    parser.add_argument(
+        "configs",
+        nargs="*",
+        choices=sorted(ENVIRONMENT_CONFIGS.keys()),
+        help="Optional config names to train. If omitted, trains the report configs.",
+    )
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+    config_names = args.configs or TRAINING_CONFIG_NAMES
+
+    for config_name in config_names:
+        train_config(config_name, ENVIRONMENT_CONFIGS[config_name])
 
 
 if __name__ == "__main__":

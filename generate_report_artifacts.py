@@ -12,9 +12,11 @@ from inventory_env import InventoryEnv
 
 
 ARTIFACT_DIR = Path("models/report_artifacts")
-TRAINING_METRICS_PATH = Path("models/training_metrics.csv")
-INITIAL_MODEL_PATH = "models/initial_dqn_inventory_trend"
-FINAL_MODEL_PATH = "models/dqn_inventory_trend"
+REPORT_CONFIG_NAME = "baseline"
+TRAINING_RUN_DIR = Path("models/training_runs") / REPORT_CONFIG_NAME
+TRAINING_METRICS_PATH = TRAINING_RUN_DIR / "training_metrics.csv"
+INITIAL_MODEL_PATH = str(TRAINING_RUN_DIR / "initial_dqn_inventory")
+FINAL_MODEL_PATH = str(TRAINING_RUN_DIR / "dqn_inventory")
 ORDER_COMPARISON_PATH = ARTIFACT_DIR / "initial_vs_final_orders.csv"
 
 
@@ -78,6 +80,13 @@ def write_order_comparison(seed=123):
 
     initial_model = DQN.load(INITIAL_MODEL_PATH)
     final_model = DQN.load(FINAL_MODEL_PATH)
+    expected_shape = InventoryEnv().observation_space.shape
+
+    if initial_model.observation_space.shape != expected_shape or final_model.observation_space.shape != expected_shape:
+        print("Initial or final DQN model is incompatible with the current environment.")
+        print("Run `python train_dqn.py` before regenerating the order-comparison artifacts.")
+        return
+
     initial_rows = run_model_episode(initial_model, seed)
     final_rows = run_model_episode(final_model, seed)
 
