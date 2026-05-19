@@ -14,7 +14,7 @@ DEMAND_STD = 8
 DEMAND_TREND_STRENGTH = 0.50
 DEMAND_SEASONAL_AMPLITUDE = 0.25
 DEMAND_SEASONAL_PERIOD = 25
-DEMAND_SPIKE_CHANCE = 0.10
+DEMAND_SPIKE_CHANCE = 0.05
 DEMAND_SPIKE_MULTIPLIER = 1.8
 SALE_PRICE = 8.0
 ORDER_COST = 4.0
@@ -43,7 +43,7 @@ ENVIRONMENT_CONFIGS = {
             "demand_trend_strength": 0.0,
             "demand_seasonal_amplitude": 0.15,
             "demand_seasonal_period": 30,
-            "demand_spike_chance": 0.04,
+            "demand_spike_chance": 0.02,
             "demand_spike_multiplier": 1.8,
             "shortage_cost": 14.0,
             "demand_regimes": [
@@ -51,21 +51,21 @@ ENVIRONMENT_CONFIGS = {
                     "start_step": 0,
                     "mean_demand": 12,
                     "demand_std": 4,
-                    "demand_spike_chance": 0.02,
+                    "demand_spike_chance": 0.01,
                     "demand_spike_multiplier": 1.6,
                 },
                 {
                     "start_step": 35,
                     "mean_demand": 32,
                     "demand_std": 7,
-                    "demand_spike_chance": 0.08,
+                    "demand_spike_chance": 0.04,
                     "demand_spike_multiplier": 1.8,
                 },
                 {
                     "start_step": 75,
                     "mean_demand": 18,
                     "demand_std": 6,
-                    "demand_spike_chance": 0.25,
+                    "demand_spike_chance": 0.12,
                     "demand_spike_multiplier": 2.5,
                 },
             ],
