@@ -17,6 +17,8 @@ TRAINING_RUNS_DIR = Path("models/training_runs")
 EVALUATION_EPISODES = 100
 BASE_STOCK_TARGET = 110
 
+TRAJECTORY_CONFIGS = ["baseline", "adaptive_regime_shift"]
+TRAJECTORY_SEEDS = 20
 
 def random_policy(observation, env):
     return env.action_space.sample()
@@ -120,6 +122,22 @@ def run_episode(policy, env_config, seed):
         "average_order": total_order / env.episode_length,
     }
 
+def run_episode_trajectory(policy, env_config, seed):
+    env = InventoryEnv(**env_config)
+    env.action_space.seed(seed)
+    observation, _ = env.reset(seed=seed)
+
+    cumulative, running = [], 0.0
+    done = False
+    while not done:
+        action = policy(observation, env)
+        observation, reward, terminated, truncated, _ = env.step(action)
+        running += reward
+        cumulative.append(running)
+        done = terminated or truncated
+
+    return cumulative
+
 
 def summarize_policy(config_name, policy_name, policy, env_config):
     episodes = [
@@ -206,6 +224,53 @@ def plot_metric(results, column, title, ylabel, filename, percent=False):
     plt.savefig(ARTIFACT_DIR / filename, dpi=160)
     plt.close()
 
+def plot_trajectory(experiment_configs):
+    target_configs = {
+        c["name"]: c
+        for c in experiment_configs
+        if c["name"] in TRAJECTORY_CONFIGS
+    }
+    if not target_configs:
+        print("Trajectory plot skipped — no matching configs found.")
+        return
+
+    CONFIG_COLORS = {"baseline": "C0", "adaptive_regime_shift": "C1"}
+    POLICY_STYLES = {"DQN": "solid", "Base-stock": "dashed", "Random": "dotted"}
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+
+    for config_name, config in target_configs.items():
+        policies = load_policies(config_name, config["env_config"])
+        color = CONFIG_COLORS.get(config_name, "C2")
+
+        for policy_name, policy in policies:
+            if "DQN" in policy_name:
+                short = "DQN"
+            elif "Base-stock" in policy_name:
+                short = "Base-stock"
+            else:
+                short = "Random"
+
+            trajectories = [
+                run_episode_trajectory(policy, config["env_config"], seed)
+                for seed in range(TRAJECTORY_SEEDS)
+            ]
+            min_len = min(len(t) for t in trajectories)
+            mean_traj = np.array([t[:min_len] for t in trajectories]).mean(axis=0)
+            timesteps = np.arange(min_len)
+
+            label = f"{short} ({config_name.replace('_', ' ')})"
+            ax.plot(timesteps, mean_traj, label=label, color=color,
+                    linestyle=POLICY_STYLES[short])
+
+    ax.set_title("Cumulative reward trajectory: baseline vs adaptive regime shift")
+    ax.set_xlabel("Timestep")
+    ax.set_ylabel("Mean cumulative reward")
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(ARTIFACT_DIR / "trajectory_reward_comparison.png", dpi=160)
+    plt.close()
+    print("Trajectory chart saved.")
 
 def main():
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
@@ -256,6 +321,8 @@ def main():
         "Mean reward",
         "config_mean_reward.png",
     )
+
+    plot_trajectory(experiment_configs)
 
     print(f"Configuration experiment outputs saved in {ARTIFACT_DIR}.")
 
