@@ -5,6 +5,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 from stable_baselines3 import DQN
 
@@ -21,6 +22,9 @@ BEST_MODEL_PATH = str(TRAINING_RUN_DIR / "best_model" / "best_model")
 FINAL_MODEL_PATH = str(TRAINING_RUN_DIR / "dqn_inventory")
 ORDER_COMPARISON_PATH = ARTIFACT_DIR / "initial_vs_best_orders.csv"
 ORDER_COMPARISON_PLOT_PATH = ARTIFACT_DIR / "initial_vs_best_orders.png"
+HEATMAP_PLOT_PATH = ARTIFACT_DIR / "inventory_heatmap.png"
+TRAJECTORY_PLOT_PATH = ARTIFACT_DIR / "inventory_trajectories.png"
+GRADIENT_COMPARISON_PATH = ARTIFACT_DIR / "gradient_comparison.png"
 
 
 def report_env_config():
@@ -97,6 +101,16 @@ def run_model_episode(model, seed):
     return rows
 
 
+def run_multiple_episodes(model, n_episodes=10, base_seed=0):
+    all_episodes = []
+    for i in range(n_episodes):
+        rows = run_model_episode(model, seed=base_seed + i)
+        for r in rows:
+            r["episode"] = i
+        all_episodes.extend(rows)
+    return all_episodes
+
+
 def write_order_comparison(seed=123):
     initial_model, initial_model_path = load_compatible_model([INITIAL_MODEL_PATH])
     trained_model, trained_model_path = load_compatible_model([BEST_MODEL_PATH, FINAL_MODEL_PATH])
@@ -160,11 +174,106 @@ def write_order_comparison(seed=123):
     plt.savefig(ORDER_COMPARISON_PLOT_PATH, dpi=160)
     plt.close()
 
+    return initial_rows, trained_rows
+
+def plot_inventory_heatmap(initial_rows, trained_rows, n_seeds=8):
+    initial_model, _ = load_compatible_model([INITIAL_MODEL_PATH])
+    trained_model, _ = load_compatible_model([BEST_MODEL_PATH, FINAL_MODEL_PATH])
+
+    if initial_model is None or trained_model is None:
+        print("Models not found – skipping heatmap generation.")
+        return
+
+    def collect_inventory_matrix(model, n_seeds):
+        matrix = []
+        for s in range(n_seeds):
+            rows = run_model_episode(model, seed=s * 7)
+            matrix.append([r["inventory"] for r in rows])
+        max_len = max(len(r) for r in matrix)
+        padded = [r + [np.nan] * (max_len - len(r)) for r in matrix]
+        return np.array(padded, dtype=float)
+
+    init_matrix = collect_inventory_matrix(initial_model, n_seeds)
+    best_matrix = collect_inventory_matrix(trained_model, n_seeds)
+
+    vmin = np.nanmin([init_matrix, best_matrix])
+    vmax = np.nanmax([init_matrix, best_matrix])
+
+    fig, axes = plt.subplots(2, 1, figsize=(11, 6))
+    fig.suptitle("Inventory level heatmap across episodes")
+
+    for ax, mat, title in zip(
+        axes,
+        [init_matrix, best_matrix],
+        ["Initial policy (untrained model)", "Best model (after training)"],
+    ):
+        im = ax.imshow(mat, aspect="auto", cmap="RdYlGn", vmin=vmin, vmax=vmax, interpolation="nearest")
+        ax.set_title(title)
+        ax.set_xlabel("Episode step")
+        ax.set_ylabel("Episode (seed)")
+        ax.set_yticks(range(n_seeds))
+        ax.set_yticklabels([f"#{i}" for i in range(n_seeds)])
+        plt.colorbar(im, ax=ax, label="Inventory (units)", fraction=0.03, pad=0.02)
+
+    plt.tight_layout()
+    plt.savefig(HEATMAP_PLOT_PATH, dpi=160)
+    plt.close()
+
+
+def plot_inventory_trajectories(initial_rows, trained_rows):
+    if initial_rows is None or trained_rows is None:
+        print("No data available for inventory comparison plot.")
+        return
+
+    init_df = pd.DataFrame(initial_rows)
+    best_df = pd.DataFrame(trained_rows)
+    steps = init_df["step"].values
+
+    plt.figure(figsize=(9, 5))
+    plt.plot(steps, init_df["inventory"], label="Initial policy inventory", alpha=0.8)
+    plt.plot(steps, best_df["inventory"], label="Best policy inventory", alpha=0.8)
+    plt.title("Inventory comparison before and after training")
+    plt.xlabel("Episode step")
+    plt.ylabel("Inventory (units)")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(TRAJECTORY_PLOT_PATH, dpi=160)
+    plt.close()
+
+
+def plot_gradient_comparison(initial_rows, trained_rows):
+    if initial_rows is None or trained_rows is None:
+        print("No data available for cumulative unmet demand plot.")
+        return
+
+    init_df = pd.DataFrame(initial_rows)
+    best_df = pd.DataFrame(trained_rows)
+    steps = init_df["step"].values
+
+    plt.figure(figsize=(9, 5))
+    plt.plot(steps, init_df["unmet_demand"].cumsum(), label="Initial policy", alpha=0.8)
+    plt.plot(steps, best_df["unmet_demand"].cumsum(), label="Best policy", alpha=0.8)
+    plt.title("Cumulative unmet demand")
+    plt.xlabel("Episode step")
+    plt.ylabel("Units (cumulative)")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(GRADIENT_COMPARISON_PATH, dpi=160)
+    plt.close()
+
 
 def main():
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+
     plot_training_metrics()
-    write_order_comparison()
+    result = write_order_comparison()
+    initial_rows, trained_rows = result if result else (None, None)
+
+    plot_inventory_heatmap(initial_rows, trained_rows)
+    plot_inventory_trajectories(initial_rows, trained_rows)
+    plot_gradient_comparison(initial_rows, trained_rows)
     print(f"Report artifacts saved in {ARTIFACT_DIR}.")
 
 
