@@ -4,6 +4,10 @@ Inventory control with reinforcement learning. A DQN agent learns when and how m
 
 Built with [Gymnasium](https://github.com/Farama-Foundation/Gymnasium), [Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3), and [Streamlit](https://github.com/streamlit/streamlit).
 
+![Start page with scenario controls and policy selection](docs/images/demo.png)
+
+*Start page with the baseline scenario selected.*
+
 ## Installation
 
 Developed and tested with Python 3.12. Run these commands from the repository directory:
@@ -41,6 +45,10 @@ python -m streamlit run app.py
 ```
 
 Open the URL printed in the terminal. Select a scenario and model, adjust the parameters in the sidebar, and run a policy. Trained models for both scenarios are included in `models/training_runs/`.
+
+![DQN simulation showing reward, costs, service level, and inventory and order trajectories](docs/images/demo2.png)
+
+*Example episode using the best saved DQN policy for the baseline scenario.*
 
 Changing the settings runs the saved policy in the modified environment; it does not retrain the model. Separate demo runs can use different demand sequences. Use the evaluation scripts for comparisons with matching seeds.
 
