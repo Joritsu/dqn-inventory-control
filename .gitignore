@@ -6,3 +6,4 @@ venv/
 env/
 .env
 .vscode/
+models/training_runs/*/checkpoints/

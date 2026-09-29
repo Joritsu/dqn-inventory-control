@@ -36,6 +36,8 @@ Then install the dependencies:
 python -m pip install -r requirements.txt
 ```
 
+The tested dependency versions are pinned in [requirements.txt](requirements.txt).
+
 ## Usage
 
 ### Run the demo
@@ -65,6 +67,8 @@ python train_dqn.py baseline adaptive_regime_shift
 
 Training settings are in [train_dqn.py](train_dqn.py): up to 1,000,000 steps, evaluation every 10,000 steps, and early stopping. Models and metrics are written to `models/training_runs/<scenario>/`. Re-running training overwrites files in that directory.
 
+Intermediate checkpoints are generated locally but excluded from Git. The repository includes the initial, final, and best saved model for each scenario.
+
 ### Evaluate
 
 ```bash
@@ -78,6 +82,14 @@ python generate_report_artifacts.py
 Tables and plots are saved to `models/report_artifacts/`.
 
 `python evaluate_dqn.py` also compares base-stock targets from 60 to 130 in the baseline scenario. It prefers the final model over the best checkpoint, so its results can differ from those below.
+
+### Run the tests
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+The tests check inventory accounting, delivery timing, warehouse capacity, and whether both saved best models load. GitHub Actions runs them on pushes and pull requests.
 
 ## Environment
 
